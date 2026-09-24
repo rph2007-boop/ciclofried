@@ -1,0 +1,130 @@
+@import url('https://fonts.googleapis.com/css2?family=Inter:wght@300;400;500;600;700&family=Poppins:wght@400;500;600;700&display=swap');
+
+@tailwind base;
+@tailwind components;
+@tailwind utilities;
+
+@layer base {
+  :root {
+    /* Sophisticated Color Palette */
+    --color-primary-light: #E8F4F8;
+    --color-primary-medium: #4A90E2;
+    --color-primary-deep: #1E3A8A;
+    --color-purple-accent: #8B5CF6;
+    --color-warm-accent: #F59E0B;
+    
+    /* Shadcn/UI Semantic Colors (HSL) */
+    --background: 210 40% 98%;
+    --foreground: 222 47% 11%;
+
+    --card: 0 0% 100%;
+    --card-foreground: 222 47% 11%;
+ 
+    --popover: 0 0% 100%;
+    --popover-foreground: 222 47% 11%;
+ 
+    --primary: 217 91% 60%; /* Matches #4A90E2 (Primary Medium) */
+    --primary-foreground: 210 40% 98%;
+ 
+    --secondary: 210 40% 96.1%;
+    --secondary-foreground: 222 47% 11.2%;
+ 
+    --muted: 210 40% 96.1%;
+    --muted-foreground: 215.4 16.3% 46.9%;
+ 
+    --accent: 210 40% 96.1%;
+    --accent-foreground: 222 47% 11.2%;
+ 
+    --destructive: 0 84.2% 60.2%;
+    --destructive-foreground: 210 40% 98%;
+
+    --border: 214.3 31.8% 91.4%;
+    --input: 214.3 31.8% 91.4%;
+    --ring: 217 91% 60%;
+ 
+    --radius: 1rem;
+  }
+ 
+  .dark {
+    --background: 222.2 84% 4.9%;
+    --foreground: 210 40% 98%;
+ 
+    --card: 222.2 84% 4.9%;
+    --card-foreground: 210 40% 98%;
+ 
+    --popover: 222.2 84% 4.9%;
+    --popover-foreground: 210 40% 98%;
+ 
+    --primary: 210 40% 98%;
+    --primary-foreground: 222.2 47.4% 11.2%;
+ 
+    --secondary: 217.2 32.6% 17.5%;
+    --secondary-foreground: 210 40% 98%;
+ 
+    --muted: 217.2 32.6% 17.5%;
+    --muted-foreground: 215 20.2% 65.1%;
+ 
+    --accent: 217.2 32.6% 17.5%;
+    --accent-foreground: 210 40% 98%;
+ 
+    --destructive: 0 62.8% 30.6%;
+    --destructive-foreground: 210 40% 98%;
+ 
+    --border: 217.2 32.6% 17.5%;
+    --input: 217.2 32.6% 17.5%;
+    --ring: 212.7 26.8% 83.9%;
+  }
+
+  body {
+    @apply bg-background text-foreground font-body antialiased;
+    background-image: 
+      radial-gradient(at 0% 0%, hsla(217,91%,95%,1) 0px, transparent 50%),
+      radial-gradient(at 100% 0%, hsla(217,91%,95%,1) 0px, transparent 50%),
+      radial-gradient(at 100% 100%, hsla(280,50%,95%,1) 0px, transparent 50%),
+      radial-gradient(at 0% 100%, hsla(217,91%,95%,1) 0px, transparent 50%);
+    background-attachment: fixed;
+  }
+
+  h1, h2, h3, h4, h5, h6 {
+    @apply font-heading font-semibold tracking-tight;
+  }
+}
+
+@layer utilities {
+  .text-heading-1 { @apply font-heading text-4xl font-bold text-blue-900; }
+  .text-heading-2 { @apply font-heading text-3xl font-semibold text-blue-900; }
+  .text-heading-3 { @apply font-heading text-2xl font-medium text-blue-800; }
+  .text-body { @apply font-body text-base text-gray-600; }
+  .text-caption { @apply font-body text-sm text-gray-500; }
+
+  .glass-card {
+    @apply bg-white/70 backdrop-blur-lg border border-white/20 shadow-xl;
+  }
+  
+  .glass-panel {
+    @apply bg-white/40 backdrop-blur-md border border-white/30 shadow-lg;
+  }
+
+  .shadow-elegant {
+    box-shadow: 0 10px 40px -10px rgba(30, 58, 138, 0.1);
+  }
+  
+  .shadow-elegant-hover {
+    box-shadow: 0 20px 40px -10px rgba(30, 58, 138, 0.15);
+  }
+}
+
+/* Custom Scrollbar for nicer UI */
+::-webkit-scrollbar {
+  width: 8px;
+}
+::-webkit-scrollbar-track {
+  background: transparent;
+}
+::-webkit-scrollbar-thumb {
+  background: #cbd5e1;
+  border-radius: 4px;
+}
+::-webkit-scrollbar-thumb:hover {
+  background: #94a3b8;
+}
