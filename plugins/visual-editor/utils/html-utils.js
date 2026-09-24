@@ -1,8 +1,3 @@
-import { IMPORTANT_STYLES } from '../constants/selectors.js';
-
-const TEXT_CONTEXT_MAX_LENGTH = 500;
-const OUTER_HTML_MAX_LENGTH = 5000;
-
 /**
  * Decodes HTML entity-encoded characters back to their literal form.
  * @param {string} string
@@ -25,20 +20,6 @@ export function decodeHtmlEntities(string) {
  */
 export function cssPropToCamel(property) {
 	return property.replace(/-([a-z])/g, (_, character) => character.toUpperCase());
-}
-
-const HTML_TO_JSX_ATTRIBUTE_RENAME_MAP = { class: 'className', for: 'htmlFor' };
-
-/**
- * Converts an HTML attribute name to its JSX/React equivalent (renames `class`/`for`,
- * camelCases hyphenated names except `data-*`/`aria-*`, e.g. `stroke-width` -> `strokeWidth`).
- * @param {string} name
- * @returns {string}
- */
-export function toJsxAttributeName(name) {
-	if (Object.prototype.hasOwnProperty.call(HTML_TO_JSX_ATTRIBUTE_RENAME_MAP, name)) return HTML_TO_JSX_ATTRIBUTE_RENAME_MAP[name];
-	if (name.startsWith('data-') || name.startsWith('aria-')) return name;
-	return name.replace(/-([a-z0-9])/g, (_, character) => character.toUpperCase());
 }
 
 /**
@@ -216,119 +197,4 @@ export function sanitizeText(text) {
 		.replace(/}/g, "&#125;");
 	result = result.replace(/\x00ITAG(\d+)\x00/g, (_, index) => preserved[parseInt(index)]);
 	return result;
-}
-
-/**
- * Builds a CSS selector path to uniquely identify the element.
- * Uses tag + classes + nth-of-type where IDs are unavailable.
- * @param {HTMLElement} element
- * @returns {string}
- */
-export function buildCssSelector(element) {
-	const path = [];
-	let current = element;
-	let depth = 0;
-	const maxDepth = 20;
-
-	while (current && current.nodeType === Node.ELEMENT_NODE && depth < maxDepth) {
-		let selector = current.nodeName.toLowerCase();
-
-		if (current.id) {
-			selector += `#${current.id}`;
-			path.unshift(selector);
-			break;
-		}
-
-		if (current.className && typeof current.className === 'string') {
-			const classes = current.className.trim().split(/\s+/).filter(c => c.length > 0);
-			if (classes.length > 0) {
-				selector += `.${classes.join('.')}`;
-			}
-		}
-
-		if (current.parentElement) {
-			const siblings = Array.from(current.parentElement.children);
-			const sameTypeSiblings = siblings.filter(s => s.nodeName === current.nodeName);
-			if (sameTypeSiblings.length > 1) {
-				const index = sameTypeSiblings.indexOf(current) + 1;
-				selector += `:nth-of-type(${index})`;
-			}
-		}
-
-		path.unshift(selector);
-		current = current.parentElement;
-		depth++;
-	}
-
-	return path.join(' > ');
-}
-
-function getComputedStylesForElement(element) {
-	const computedStyles = window.getComputedStyle(element);
-
-	return Object.fromEntries(IMPORTANT_STYLES.map((style) => {
-		const styleValue = computedStyles.getPropertyValue(style)?.trim();
-
-		return styleValue && styleValue !== 'none' && styleValue !== 'normal'
-			? [style, styleValue]
-			: null;
-	}).filter(Boolean));
-}
-
-/**
- * Extracts a rich DOM context payload for an element: selector, attributes,
- * computed styles, and truncated text content.
- * @param {HTMLElement} element
- * @returns {object|null}
- */
-export function extractDOMContext(element) {
-	if (!element) return null;
-
-	const textContent = element.textContent?.trim();
-
-	return {
-		outerHTML: element.outerHTML.slice(0, OUTER_HTML_MAX_LENGTH),
-		selector: buildCssSelector(element),
-		attributes: (element.attributes && element.attributes.length > 0)
-			? Object.fromEntries(Array.from(element.attributes).map((attr) => [attr.name, attr.value]))
-			: {},
-		computedStyles: getComputedStylesForElement(element),
-		textContent: (textContent && textContent.length > 0 && textContent.length < TEXT_CONTEXT_MAX_LENGTH)
-			? textContent
-			: null,
-	};
-}
-
-/**
- * Walks the React fiber tree from a DOM node to find the source file path.
- * @param {HTMLElement} node
- * @returns {string|null}
- */
-export function getFilePathFromNode(node) {
-	const fiberKey = Object.keys(node).find(k => k.startsWith('__reactFiber'));
-	if (!fiberKey) return null;
-
-	let currentFiber = node[fiberKey];
-	while (currentFiber) {
-		const source = currentFiber._debugSource
-			|| currentFiber.memoizedProps?.__source
-			|| currentFiber.pendingProps?.__source;
-
-		if (source?.fileName) return source.fileName;
-		currentFiber = currentFiber.return;
-	}
-
-	return null;
-}
-
-/**
- * Strips the path prefix up to and including `public_html/`.
- * @param {string} filePath
- * @returns {string}
- */
-export function stripFilePath(filePath) {
-	if (!filePath) return filePath;
-	const publicHtmlIndex = filePath.indexOf('public_html/');
-	if (publicHtmlIndex !== -1) return filePath.substring(publicHtmlIndex + 'public_html/'.length);
-	return filePath;
 }

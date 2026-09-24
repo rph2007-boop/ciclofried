@@ -12,10 +12,6 @@ export const ParentMessage = {
 	DRAFT_SAVE_FAILED: 'draftSaveFailed',
 	DRAFT_SAVE_FINISHED: 'draftSaveFinished',
 	DRAFT_DISCARDED: 'draftDiscarded',
-	ANNOTATION_PANEL_OPENED: 'annotationPanelOpened',
-	ANNOTATION_IMAGE_ATTACH_REQUESTED: 'annotationImageAttachRequested',
-	ANNOTATION_IMAGE_REMOVED: 'annotationImageRemoved',
-	ANNOTATION_IMAGE_PREVIEW_REQUESTED: 'annotationImagePreviewRequested',
 }
 
 /** Message types sent from the parent Horizons frame to the iframe. */
@@ -25,11 +21,6 @@ export const ChildMessage = {
 	EDIT_SAVE: 'edit-save',
 	DRAFT_SAVE: 'draft-save',
 	DRAFT_DISCARD: 'draft-discard',
-	DRAFT_RESTORE: 'draft-restore',
-	DRAFT_SNAPSHOT_REQUEST: 'draft-snapshot-request',
 	EDIT_UNDO: 'edit-undo',
 	EDIT_REDO: 'edit-redo',
-	EDIT_CANCEL: 'edit-cancel',
-	ANNOTATION_OPEN_FOR_IMAGE: 'annotation-open-for-image',
-	ANNOTATION_IMAGE_ATTACHED: 'annotation-image-attached',
 }

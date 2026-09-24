@@ -2,12 +2,19 @@ import { getEditing, setEditing, clearEditing } from "../../state/editing-state.
 import { normalizeContentEditableHtml, patchRemoveChild, serializeContentEditableHtml } from "../../utils/html-utils.js";
 import { postToParent } from "../../utils/parent-frame.js";
 import { ParentMessage } from "../../constants/messages.js";
-import { beginEditSession, recordEdit } from "../../state/history-state.js";
-import { notifyDraftStateChanged } from "../../api/draft-snapshot.js";
+import { beginEditSession, recordEdit, getEditState } from "../../state/history-state.js";
 import { showTextFormatToolbar, hideTextFormatToolbar, scheduleRepositionEditOverlays } from "../text-format/toolbar/toolbar.js";
 import { onSelectionChange } from "./cursor-styles.js";
-import { captureElementMetadata } from "../../utils/selection-mode-metadata.js";
 
+let blurCommitTimer = null;
+
+/** Cancels a pending blur-triggered commit timer. */
+export function cancelBlurCommit() {
+    if (blurCommitTimer !== null) {
+        clearTimeout(blurCommitTimer);
+        blurCommitTimer = null;
+    }
+}
 
 /**
  * Converts a CSS property name to its camelCase JS form
@@ -149,18 +156,8 @@ export function placeCursorAtEnd(container) {
     if (!container.childNodes.length) {
         container.appendChild(document.createTextNode(''));
     }
-
-    let target = container;
-    while (target.lastChild) {
-        target = target.lastChild;
-    }
-
     const range = document.createRange();
-    if (target.nodeType === Node.TEXT_NODE) {
-        range.setStart(target, target.textContent.length);
-    } else {
-        range.selectNodeContents(target);
-    }
+    range.selectNodeContents(container);
     range.collapse(false);
     const selection = window.getSelection();
     selection.removeAllRanges();
@@ -206,15 +203,13 @@ export function placeCursorAtPoint(x, y, container) {
  * @param {HTMLElement} targetElement
  * @param {string} editId
  * @param {string} currentContent - Initial HTML content.
- * @param {{ focusTarget?: boolean }} [options] - Pass `focusTarget: false` when the caller focuses its own UI instead.
  */
-export function startInlineEdit(targetElement, editId, currentContent, { focusTarget = true } = {}) {
+export function startInlineEdit(targetElement, editId, currentContent) {
     if (getEditing()?.targetElement === targetElement) return;
 
     const savedChildren = saveChildNodes(targetElement);
     const normalizedOriginal = normalizeContentEditableHtml(currentContent);
     const sessionId = beginEditSession();
-    const selectionMode = captureElementMetadata(targetElement);
     setEditing({
         editId,
         targetElement,
@@ -224,7 +219,6 @@ export function startInlineEdit(targetElement, editId, currentContent, { focusTa
         originalInlineTextAlign: targetElement.style.textAlign || '',
         originalInlineStyles: captureInlineStyles(targetElement),
         savedChildren,
-        selectionMode,
     });
     document.getElementById("root")?.setAttribute("data-inline-editing", "true");
     targetElement.setAttribute("data-editing", "true");
@@ -232,25 +226,19 @@ export function startInlineEdit(targetElement, editId, currentContent, { focusTa
 
     targetElement.setAttribute("contenteditable", "true");
     applyEditingCaretColor(targetElement);
+    targetElement.focus();
+    placeCursorAtEnd(targetElement);
 
-    if (focusTarget) {
-        targetElement.focus();
+    requestAnimationFrame(() => {
+        if (getEditing()?.targetElement !== targetElement) return;
         placeCursorAtEnd(targetElement);
-
-        requestAnimationFrame(() => {
-            if (getEditing()?.targetElement !== targetElement) return;
-            placeCursorAtEnd(targetElement);
-            targetElement.focus();
-        });
-    }
-
-    postToParent(ParentMessage.EDIT_ENTER, {
-        currentText: currentContent,
-        elementType: targetElement.tagName.toLowerCase(),
-        isDirectlyEditable: targetElement.hasAttribute('data-edit-id'),
+        targetElement.focus();
     });
+
+    postToParent(ParentMessage.EDIT_ENTER, { currentText: currentContent });
     showTextFormatToolbar(targetElement);
     targetElement.addEventListener("keydown", onInlineEditKeyDown);
+    targetElement.addEventListener("blur", onInlineEditBlur);
     targetElement.addEventListener("beforeinput", onInlineEditBeforeInput);
     targetElement.addEventListener("input", onInlineEditInput);
     targetElement.addEventListener("tft-color-commit", saveCurrentEdit);
@@ -267,14 +255,13 @@ export function saveCurrentEdit() {
     const editing = getEditing();
     if (!editing) return;
 
-    const { editId, targetElement, originalContent, sessionId, selectionMode } = editing;
+    const { editId, targetElement, originalContent, sessionId } = editing;
     const newHTML = serializeContentEditableHtml(targetElement);
     const { style, oldStyle } = buildStyleDiff(editing);
-    const isAssisted = targetElement.hasAttribute('data-edit-assisted-id');
 
     if (newHTML !== originalContent || style) {
-        recordEdit(editId, { beforeContent: originalContent, afterContent: newHTML }, { style, oldStyle, element: targetElement, sessionId, isAssisted, selectionMode });
-        notifyDraftStateChanged();
+        recordEdit(editId, originalContent, newHTML, { style, oldStyle, element: targetElement, sessionId });
+        postToParent(ParentMessage.EDIT_STATE_CHANGED, { ...getEditState() });
         editing.originalContent = newHTML;
         editing.hasSoftSaved = true;
         refreshStyleSnapshots(editing);
@@ -286,16 +273,16 @@ export function commitCurrentEdit() {
     const editing = getEditing();
     if (!editing) return;
 
-    const { editId, targetElement, originalContent, sessionId, selectionMode } = editing;
+    const { editId, targetElement, originalContent, sessionId } = editing;
     const newHTML = serializeContentEditableHtml(targetElement);
     const { style, oldStyle } = buildStyleDiff(editing);
-    const isAssisted = targetElement.hasAttribute('data-edit-assisted-id');
 
     targetElement.removeAttribute("contenteditable");
     targetElement.removeAttribute("data-editing");
     targetElement.style.removeProperty("caret-color");
     document.getElementById("root")?.removeAttribute("data-inline-editing");
     targetElement.removeEventListener("keydown", onInlineEditKeyDown);
+    targetElement.removeEventListener("blur", onInlineEditBlur);
     targetElement.removeEventListener("beforeinput", onInlineEditBeforeInput);
     targetElement.removeEventListener("input", onInlineEditInput);
     targetElement.removeEventListener("tft-color-commit", saveCurrentEdit);
@@ -308,8 +295,8 @@ export function commitCurrentEdit() {
     const { hasSoftSaved } = editing;
 
     if (newHTML !== originalContent || style) {
-        recordEdit(editId, { beforeContent: originalContent, afterContent: newHTML }, { style, oldStyle, element: targetElement, sessionId, isAssisted, selectionMode });
-        notifyDraftStateChanged();
+        recordEdit(editId, originalContent, newHTML, { style, oldStyle, element: targetElement, sessionId });
+        postToParent(ParentMessage.EDIT_STATE_CHANGED, { ...getEditState() });
     } else if (!hasSoftSaved) {
         postToParent(ParentMessage.EDIT_CANCEL, {});
     }
@@ -366,3 +353,16 @@ export function onInlineEditKeyDown(event) {
     event.stopPropagation();
 }
 
+/** Schedules commit when focus leaves the editable and floating panels. */
+export function onInlineEditBlur() {
+    cancelBlurCommit();
+    blurCommitTimer = setTimeout(() => {
+        blurCommitTimer = null;
+        if (!getEditing()) return;
+        const element = getEditing().targetElement;
+        if (!element.hasAttribute("contenteditable")) return;
+        if (element === document.activeElement || element.contains(document.activeElement)) return;
+        if (document.activeElement?.closest("#text-format-toolbar, #text-format-link-action, #text-format-size-action, #text-format-font-action, #text-format-color-action")) return;
+        commitCurrentEdit();
+    }, 100);
+}

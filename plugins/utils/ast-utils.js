@@ -11,7 +11,7 @@ import {
 
 const __filename = fileURLToPath(import.meta.url);
 const __dirname = path.dirname(__filename);
-const VITE_PROJECT_ROOT = path.resolve(__dirname, '../../../..');
+const VITE_PROJECT_ROOT = path.resolve(__dirname, '../..');
 
 // Blacklist of components that should not be extracted (utility/non-visual components)
 const COMPONENT_BLACKLIST = new Set([
@@ -158,8 +158,7 @@ export function findJSXElementAtPosition(ast, line, column) {
 		},
 	};
 
-	const traverseFunction = traverseBabel.default || traverseBabel;
-	traverseFunction(ast, visitor);
+	traverseBabel.default(ast, visitor);
 
 	// Return exact match if found, otherwise return closest match if within reasonable distance
 	// Use larger threshold (50 chars) for same-line elements, 5 lines for multi-line elements

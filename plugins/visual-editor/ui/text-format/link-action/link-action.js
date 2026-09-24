@@ -1,10 +1,10 @@
 import { getEditing } from '../../../state/editing-state.js';
 import { registerPanel, PanelId, setPanelVisible, isPanelVisible } from '../../../state/panel-state.js';
-import { recordEdit } from '../../../state/history-state.js';
-import { notifyDraftStateChanged } from '../../../api/draft-snapshot.js';
+import { recordEdit, getEditState } from '../../../state/history-state.js';
+import { postToParent } from '../../../utils/parent-frame.js';
+import { ParentMessage } from '../../../constants/messages.js';
 import { escapeHtml } from '../../../utils/html-utils.js';
 import { createPanelElement, positionDropdownPanel, createOutsideDismiss, captureSelectionRange } from '../dropdown-panel.js';
-import { captureElementMetadata } from '../../../utils/selection-mode-metadata.js';
 import { LINK_ACTION_HTML } from './template.js';
 import { LINK_ACTION_STYLES } from './styles.js';
 
@@ -321,13 +321,12 @@ function saveLink() {
 
         const editId = sourceAnchor.getAttribute('data-edit-id');
         const urlAttribute = sourceAnchor.getAttribute('data-edit-url-attr');
-        const oldUrl = sourceAnchor.getAttribute('href');
+        const oldUrl = sourceAnchor.getAttribute('href') || '';
 
         if (oldUrl !== url && editId && urlAttribute) {
-            const selectionMode = captureElementMetadata(sourceAnchor);
             sourceAnchor.setAttribute('href', url);
-            recordEdit(editId, { beforeContent: oldUrl, afterContent: url }, { attribute: urlAttribute, element: sourceAnchor, selectionMode });
-            notifyDraftStateChanged();
+            recordEdit(editId, oldUrl, url, { attribute: urlAttribute, element: sourceAnchor });
+            postToParent(ParentMessage.EDIT_STATE_CHANGED, { ...getEditState() });
         }
         hideLinkAction();
         return;

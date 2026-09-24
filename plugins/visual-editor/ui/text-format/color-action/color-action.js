@@ -126,7 +126,7 @@ function updatePickerUI(skipHex = false) {
         gradientColors[activeGradientStop] = hex;
         refreshGradientStopSwatches();
         const gradient = buildGradient(gradientAngle, gradientColors[0], gradientColors[1]);
-        if (canApplyColor()) {
+        if (hasTextSelection()) {
             recoverGradientWrapper();
             if (lastColorWrapper?.isConnected) {
                 lastColorWrapper.style.backgroundImage = gradient;
@@ -217,7 +217,7 @@ function applyLive(color) {
         gradientColors[activeGradientStop] = color;
         refreshGradientStopSwatches();
         const gradient = buildGradient(gradientAngle, gradientColors[0], gradientColors[1]);
-        if (canApplyColor()) {
+        if (hasTextSelection()) {
             recoverGradientWrapper();
             if (lastColorWrapper?.isConnected) {
                 lastColorWrapper.style.backgroundImage = gradient;
@@ -227,7 +227,7 @@ function applyLive(color) {
         }
         setToolbarPreview(gradient);
     } else {
-        if (canApplyColor()) {
+        if (hasTextSelection()) {
             if (lastColorWrapper?.isConnected) {
                 lastColorWrapper.style.color = color;
             } else {
@@ -385,18 +385,11 @@ const outsideDismiss = createOutsideDismiss({
 });
 
 /**
- * @returns {boolean} Whether color can be applied to content. A highlighted
- * range colors that selection; a collapsed caret inside the edit target colors
- * the whole element (same as bold/italic via {@link getActiveRange}).
+ * @returns {boolean} Whether there is a real (non-collapsed) text selection to
+ * color. With nothing highlighted, color edits must not touch or select text —
+ * only the picker and toolbar swatch update.
  */
-function canApplyColor() {
-    if (!savedColorRange || !getToolbarTarget()) return false;
-    if (!savedColorRange.collapsed) return true;
-    return getToolbarTarget().contains(savedColorRange.commonAncestorContainer);
-}
-
-/** True only when the user has highlighted text (not a bare caret). */
-function hasExpandedTextSelection() {
+function hasTextSelection() {
     return !!savedColorRange && !savedColorRange.collapsed;
 }
 
@@ -425,7 +418,7 @@ function switchColorTab(tab) {
         refreshGradientStopSwatches();
         selectGradientStop(0);
         activeSwatchOption = syncGradientSwatchActive(GRADIENTS[0]);
-        if (hasExpandedTextSelection() && getToolbarTarget()) {
+        if (hasTextSelection() && getToolbarTarget()) {
             applyGradientFull(GRADIENTS[0]);
             notifyChange();
         }
@@ -435,7 +428,7 @@ function switchColorTab(tab) {
         seedPicker(defaultSolid);
         activeSwatchOption = syncSolidSwatchActive(defaultSolid);
         syncGradientSwatchActive(null);
-        if (hasExpandedTextSelection() && getToolbarTarget()) {
+        if (hasTextSelection() && getToolbarTarget()) {
             recoverGradientWrapper();
             applySolidFull(defaultSolid);
             notifyChange();
@@ -483,7 +476,7 @@ function initColorAction() {
         onDragStart: (saturation, value) => {
             pickerDragging = true;
             _colorEdited = true;
-            if (canApplyColor() && !lastColorWrapper?.isConnected) {
+            if (hasTextSelection() && !lastColorWrapper?.isConnected) {
                 if (isGradientTabActive()) {
                     applyColorAction(buildGradient(gradientAngle, gradientColors[0], gradientColors[1]), true);
                 } else {
@@ -603,7 +596,7 @@ function initColorAction() {
             }
             refreshGradientStopSwatches();
             selectGradientStop(0);
-            if (canApplyColor()) applyGradientFull(gradient);
+            if (hasTextSelection()) applyGradientFull(gradient);
             setToolbarPreview(gradient);
             notifyChange();
         } else {
@@ -611,7 +604,7 @@ function initColorAction() {
             activeSwatchOption = option;
             setActiveSwatch(option);
             seedPicker(hex);
-            if (canApplyColor()) applySolidFull(hex);
+            if (hasTextSelection()) applySolidFull(hex);
             setToolbarPreview(hex);
             notifyChange();
         }
@@ -696,7 +689,7 @@ export function showColorAction() {
     if (_pickerAlphaInput) _pickerAlphaInput.value = Math.round(pickerAlpha * 100);
 
     pickerOnChange = (color) => {
-        if (canApplyColor()) applySolidFull(color);
+        if (hasTextSelection()) applySolidFull(color);
         setToolbarPreview(color);
         notifyChange();
     };

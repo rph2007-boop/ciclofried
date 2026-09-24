@@ -1,85 +1,74 @@
-import { EDIT_BORDER_COLOR, EDIT_BACKGROUND_COLOR, PANEL_BG, BORDER_COLOR, COLOR_WHITE, Z_INDEX_EDITOR_OVERLAY } from '../../constants/theme.js';
-import { ICON_TEXT_EDIT_CURSOR } from '../../constants/icons.js';
-import { HOVER_OUTLINE_STROKE_WIDTH } from '../../constants/layout.js';
-import { EDITOR_UI_SELECTOR } from '../../constants/selectors.js';
+import { PANEL_BG, BORDER_COLOR, COLOR_WHITE, Z_INDEX_EDITOR_OVERLAY } from '../../constants/theme.js';
 
-/** Injected CSS for edit-mode hover outlines, contenteditable affordances, and the element-type tooltip. */
+/** Injected CSS for edit-mode outlines, contenteditable affordances, and the disabled tooltip. */
 export const EDIT_MODE_STYLES = `
-	#root[data-edit-mode-enabled="true"] [data-edit-id],
-	#root[data-edit-mode-enabled="true"] [data-edit-assisted-id] {
-		cursor: default !important;
-		overflow-wrap: anywhere;
+	#root[data-edit-mode-enabled="true"] {
+		cursor: pointer;
 	}
-	#root[data-edit-mode-enabled="true"] [data-edit-id][contenteditable="true"],
-	#root[data-edit-mode-enabled="true"] [data-edit-assisted-id][contenteditable="true"] {
-		outline: 1px solid ${EDIT_BORDER_COLOR};
+
+	#root[data-edit-mode-enabled="true"] [data-edit-id] {
+		cursor: pointer;
+		outline: 2px dashed #357DF9;
+		outline-offset: 2px;
+		min-height: 1em;
+		overflow-wrap: anywhere;
+		min-width: 0;
+	}
+	#root[data-edit-mode-enabled="true"] img[data-edit-id] {
+		outline-offset: -2px;
+	}
+	#root[data-edit-mode-enabled="true"] [data-edit-id]:hover {
+		background-color: #357DF933;
+		outline-color: #357DF9;
+	}
+	#root[data-edit-mode-enabled="true"] [data-edit-id][contenteditable="true"] {
+		outline-style: solid;
 		caret-color: currentColor;
 		user-select: text;
 		-webkit-user-select: text;
-		cursor: url('data:image/svg+xml,${ICON_TEXT_EDIT_CURSOR}') 12 12, text !important;
-	}
-	#root[data-edit-mode-enabled="true"] [data-edit-id][contenteditable="true"] *,
-	#root[data-edit-mode-enabled="true"] [data-edit-assisted-id][contenteditable="true"] * {
-		cursor: url('data:image/svg+xml,${ICON_TEXT_EDIT_CURSOR}') 12 12, text !important;
 	}
 
-	/* Suppress native cursor on actionable elements while editing. */
+	/* Block navigation / activation on actionable elements while editing. */
 	#root[data-edit-mode-enabled="true"] a,
 	#root[data-edit-mode-enabled="true"] button,
 	#root[data-edit-mode-enabled="true"] [role="button"],
 	#root[data-edit-mode-enabled="true"] [type="submit"] {
-		cursor: default !important;
+		pointer-events: none !important;
+	}
+	/* …but editable and disabled targets keep receiving clicks/hover. */
+	#root[data-edit-mode-enabled="true"] [data-edit-id],
+	#root[data-edit-mode-enabled="true"] [data-edit-disabled] {
+		pointer-events: auto !important;
 	}
 
-	.inline-editor-hover-outline,
-	.inline-editor-locked-outline {
-		outline-offset: -${HOVER_OUTLINE_STROKE_WIDTH}px;
-		box-shadow: inset 0 0 0 999px ${EDIT_BACKGROUND_COLOR};
-	}
-
-	.inline-editor-hover-outline {
-		outline: ${HOVER_OUTLINE_STROKE_WIDTH}px dashed ${EDIT_BORDER_COLOR};
-	}
-
-	.inline-editor-locked-outline {
-		outline: ${HOVER_OUTLINE_STROKE_WIDTH}px solid ${EDIT_BORDER_COLOR};
-	}
-
-	@keyframes element-type-tooltip-fade-in {
+	@keyframes fadeInTooltip {
 		from {
 			opacity: 0;
+			transform: translateY(5px);
 		}
 		to {
 			opacity: 1;
+			transform: translateY(0);
 		}
 	}
 
-	.element-type-tooltip {
+	#inline-editor-disabled-tooltip {
 		display: none;
 		opacity: 0;
-		position: fixed;
-		top: 0;
-		left: 0;
+		position: absolute;
 		background-color: ${PANEL_BG};
 		color: ${COLOR_WHITE};
-		padding: 0 4px;
-		border-radius: 6px;
-		font-family: DM Sans, sans-serif;
-		font-size: 12px;
-		font-weight: 400;
-		line-height: 20px;
-		border: 1px solid ${BORDER_COLOR};
-		pointer-events: none;
-		white-space: nowrap;
+		padding: 4px 8px;
+		border-radius: 8px;
 		z-index: ${Z_INDEX_EDITOR_OVERLAY};
+		font-size: 14px;
+		border: 1px solid ${BORDER_COLOR};
+		max-width: 184px;
+		text-align: center;
 	}
 
-	.element-type-tooltip.active {
+	#inline-editor-disabled-tooltip.tooltip-active {
 		display: block;
-		animation: element-type-tooltip-fade-in 0.2s ease-out forwards;
-	}
-
-	${EDITOR_UI_SELECTOR} {
-		pointer-events: auto;
+		animation: fadeInTooltip 0.2s ease-out forwards;
 	}
 `;

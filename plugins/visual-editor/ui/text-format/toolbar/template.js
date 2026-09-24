@@ -1,4 +1,4 @@
-import { ICON_CHEVRON_DOWN, ICON_BOLD, ICON_ITALIC, ICON_UNDERLINE, ICON_ALIGN_LEFT, ICON_MORE, ICON_LINK, ICON_SPARKLES } from "../../../constants/icons.js";
+import { ICON_CHEVRON_DOWN_SMALL, ICON_CHEVRON_DOWN, ICON_BOLD, ICON_ITALIC, ICON_UNDERLINE, ICON_ALIGN_LEFT, ICON_MORE, ICON_LINK } from "../../../constants/icons.js";
 
 /** DOM id for the floating text-format toolbar root element. */
 export const TOOLBAR_ID = 'text-format-toolbar';
@@ -7,18 +7,13 @@ export const TOOLBAR_ID = 'text-format-toolbar';
 export const TOOLBAR_HTML = `
 <div id="${TOOLBAR_ID}">
   <div class="tft-scroll">
-    <button class="tft-text-btn" data-action="edit-with-ai" title="Edit with AI">
-      ${ICON_SPARKLES}
-      <span class="tft-text-btn-label">Edit with AI</span>
-    </button>
-    <span class="tft-divider"></span>
     <button class="tft-swatch" data-action="color" title="Text color">
       <span class="tft-swatch-preview"></span>
     </button>
     <span class="tft-divider"></span>
     <button class="tft-select" data-action="font-family" title="Font family">
       <span class="tft-label tft-font-family">Inter</span>
-      ${ICON_CHEVRON_DOWN}
+      ${ICON_CHEVRON_DOWN_SMALL}
     </button>
     <span class="tft-divider"></span>
     <button class="tft-select tft-select--size" data-action="font-size" title="Font size">

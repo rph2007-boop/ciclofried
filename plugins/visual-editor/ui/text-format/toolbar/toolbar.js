@@ -1,4 +1,3 @@
-import { isolateEditorUiEvents } from '../../../utils/dom-utils.js';
 import { hideLinkAction, toggleLinkAction, positionLinkAction } from '../link-action/link-action.js';
 import { hideFontAction, toggleFontAction, positionFontAction } from '../font-family-action/font-family-action.js';
 import { isPanelVisible, PanelId } from '../../../state/panel-state.js';
@@ -6,16 +5,12 @@ import { hideSizeAction, showSizeAction, toggleSizeAction, saveSizeRange, applyS
 import { hideColorAction, toggleColorAction, positionColorAction } from '../color-action/color-action.js';
 import { applyBold, applyItalic, applyUnderline, applyAlign } from '../style-actions.js';
 import { onSelectionChange } from '../../inline-edit/cursor-styles.js';
-import { placeCursorAtEnd } from '../../inline-edit/edit-action.js';
 import { TOOLBAR_HTML, ALIGN_ICONS } from './template.js';
 import { TOOLBAR_STYLES } from './styles.js';
 import {
     setPositioningEl, setPositioningTarget, resetDragOffset,
     lockToolbarSide, positionToolbar, startDrag, isToolbarFixedToViewport,
 } from './positioning.js';
-import { openOrCreateAnnotation, getAnnotationPanelEl, hideAnnotationPanel } from '../../annotation-panel/panel.js';
-import { getEditorTranslations } from '../../../state/annotation-state.js';
-import { PANEL_GAP, PANEL_MARGIN, PARENT_TOOLBAR_HEIGHT, ANNOTATION_PANEL_WIDTH, ANNOTATION_PANEL_ESTIMATED_HEIGHT } from '../../../constants/layout.js';
 
 let toolbarElement = null;
 let toolbarTarget = null;
@@ -88,29 +83,6 @@ function repositionAttachedPanels() {
     positionFontAction();
     positionSizeAction();
     positionLinkAction();
-    repositionAnnotationToToolbar();
-}
-
-function repositionAnnotationToToolbar() {
-    const panel = getAnnotationPanelEl();
-    if (!panel?.classList.contains('active') || !toolbarElement) return;
-    if (panel.style.position === 'absolute') return;
-    const rect = toolbarElement.getBoundingClientRect();
-
-    let left = rect.left;
-    let top = rect.bottom + PANEL_GAP;
-
-    if (left + ANNOTATION_PANEL_WIDTH > window.innerWidth - PANEL_MARGIN) {
-        left = window.innerWidth - ANNOTATION_PANEL_WIDTH - PANEL_MARGIN;
-    }
-    if (left < PANEL_MARGIN) left = PANEL_MARGIN;
-    if (top + ANNOTATION_PANEL_ESTIMATED_HEIGHT > window.innerHeight - PARENT_TOOLBAR_HEIGHT - PANEL_MARGIN) {
-        top = rect.top - ANNOTATION_PANEL_ESTIMATED_HEIGHT - PANEL_GAP;
-    }
-    if (top < PANEL_MARGIN) top = PANEL_MARGIN;
-
-    panel.style.left = `${left}px`;
-    panel.style.top = `${top}px`;
 }
 
 function repositionEditOverlays() {
@@ -194,13 +166,6 @@ function initToolbar() {
     wrapper.innerHTML = TOOLBAR_HTML;
     toolbarElement = wrapper.firstElementChild;
     document.body.appendChild(toolbarElement);
-    isolateEditorUiEvents(toolbarElement);
-
-    const editWithAiLabel = getEditorTranslations().toolbarEditWithAi;
-    if (editWithAiLabel) {
-        const labelSpan = toolbarElement.querySelector('[data-action="edit-with-ai"] .tft-text-btn-label');
-        if (labelSpan) labelSpan.textContent = editWithAiLabel;
-    }
 
     setPositioningEl(toolbarElement);
 
@@ -219,23 +184,11 @@ function initToolbar() {
         if (!button || !toolbarTarget) return;
 
         const action = button.dataset.action;
-        const opensDropdownPanel = action === 'color' || action === 'font-family' || action === 'font-size' || action === 'link';
 
         if (action !== 'font-family') hideFontAction();
         if (action !== 'font-size') { hideSizeAction(); stopFontSizeEdit(); }
         if (action !== 'color') hideColorAction();
         if (action !== 'link') restoreSelectionAndCloseLinkPanel();
-        if (action !== 'edit-with-ai') {
-            const annotationWasOpen = getAnnotationPanelEl()?.classList.contains('active');
-            // Skip the focus/caret restore when opening another dropdown panel —
-            // it fires a selectionchange event that would immediately close the
-            // panel this same click is about to open.
-            hideAnnotationPanel({ restoreFocus: !opensDropdownPanel });
-            if (annotationWasOpen && toolbarTarget && !opensDropdownPanel) {
-                toolbarTarget.focus();
-                placeCursorAtEnd(toolbarTarget);
-            }
-        }
 
         switch (action) {
             case 'color':       toggleColorAction(); break;
@@ -265,19 +218,6 @@ function initToolbar() {
                 break;
             }
             case 'link': toggleLinkAction(); break;
-            case 'edit-with-ai': {
-                const target = toolbarTarget;
-                if (!target) break;
-
-                if (getAnnotationPanelEl()?.classList.contains('active')) {
-                    hideAnnotationPanel();
-                    break;
-                }
-
-                const toolbarRect = toolbarElement.getBoundingClientRect();
-                openOrCreateAnnotation(target, toolbarRect.left, toolbarRect.bottom, toolbarRect.top);
-                break;
-            }
         }
     });
 }

@@ -4,7 +4,6 @@
  * toolbar, and outside-interaction dismissal.
  */
 import { PANEL_GAP, PANEL_MARGIN, PARENT_TOOLBAR_HEIGHT } from '../../constants/layout.js';
-import { isolateEditorUiEvents } from '../../utils/dom-utils.js';
 import { getToolbarEl } from './toolbar/toolbar.js';
 
 /**
@@ -23,7 +22,6 @@ export function createPanelElement({ styleId, styles, html }) {
 	wrapper.innerHTML = html;
 	const element = wrapper.firstElementChild;
 	document.body.appendChild(element);
-	isolateEditorUiEvents(element);
 	return element;
 }
 
@@ -46,9 +44,9 @@ export function positionDropdownPanel(element, { buttonAction = null, matchToolb
 	const panelHeight = element.offsetHeight;
 
 	const spaceBelow = window.innerHeight - PARENT_TOOLBAR_HEIGHT - toolbarBounds.bottom;
-	const top = Math.max(PANEL_MARGIN, spaceBelow >= panelHeight + PANEL_GAP
+	const top = spaceBelow >= panelHeight + PANEL_GAP
 		? toolbarBounds.bottom + PANEL_GAP
-		: toolbarBounds.top - panelHeight - PANEL_GAP);
+		: toolbarBounds.top - panelHeight - PANEL_GAP;
 
 	const left = Math.max(PANEL_MARGIN, Math.min(anchorBounds.left, window.innerWidth - panelWidth - PANEL_MARGIN));
 
@@ -58,7 +56,7 @@ export function positionDropdownPanel(element, { buttonAction = null, matchToolb
 
 /**
  * Builds attach/detach-able listeners that dismiss a panel on outside
- * mousedown.
+ * mousedown or scroll.
  * @param {{
  *   getElement: () => HTMLElement|null,
  *   dismiss: () => void,
@@ -69,6 +67,10 @@ export function positionDropdownPanel(element, { buttonAction = null, matchToolb
  * @returns {{ attach: () => void, detach: () => void }}
  */
 export function createOutsideDismiss({ getElement, dismiss, ignoreToolbar = true, ignoreMouseDown = null, captureMouseDown = false }) {
+	function onScroll(event) {
+		if (getElement()?.contains(event.target)) return;
+		dismiss();
+	}
 	function onMouseDown(event) {
 		if (getElement()?.contains(event.target)) return;
 		if (ignoreToolbar && getToolbarEl()?.contains(event.target)) return;
@@ -78,9 +80,11 @@ export function createOutsideDismiss({ getElement, dismiss, ignoreToolbar = true
 	return {
 		attach() {
 			document.addEventListener('mousedown', onMouseDown, captureMouseDown);
+			window.addEventListener('scroll', onScroll, { capture: true });
 		},
 		detach() {
 			document.removeEventListener('mousedown', onMouseDown, captureMouseDown);
+			window.removeEventListener('scroll', onScroll, { capture: true });
 		},
 	};
 }

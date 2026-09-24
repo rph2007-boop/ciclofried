@@ -1,6 +1,5 @@
 import { sanitizeText, patchRemoveChild } from "../utils/html-utils.js";
-import { getComments } from "./annotation-state.js";
-import { getEditId } from "../constants/selectors.js";
+import { restoreImageEditValue } from "../utils/dom-utils.js";
 
 /** Maximum undo/redo entries; oldest entry is dropped when the log exceeds this. */
 const MAX_HISTORY = 25;
@@ -38,53 +37,24 @@ export function clearHistory() {
 
 /**
  * Stable deduplication key for an action.
- * Direct edits target one source location (AST writer), so they key by editId only.
- * Assisted edits can target separate rendered instances of the same JSX expression,
- * so they also include the captured selector.
- * @param {{ editId: string, attribute?: string|null, isAssisted?: boolean, selectionMode?: object|null }} action
+ * @param {{ editId: string, attribute?: string|null }} action
  * @returns {string}
  */
 export function getActionKey(action) {
 	const attributeSuffix = action.attribute ? `@${action.attribute}` : '';
-	const selector = action.isAssisted ? action.selectionMode.selector : null;
-	const instanceSuffix = selector ? `@selector:${selector}` : '';
-	return `${action.editId}${attributeSuffix}${instanceSuffix}`;
-}
-
-/**
- * Plain text from a stored HTML snapshot (beforeContent), for matching mapped
- * siblings that share one edit id.
- * @param {string|null|undefined} html
- * @returns {string|null}
- */
-function plainTextFromStoredHtml(html) {
-	if (typeof html !== "string" || !html) return null;
-	const text = html.replace(/<[^>]*>/g, "").trim();
-	return text || null;
+	return `${action.editId}${attributeSuffix}`;
 }
 
 /**
  * Resolves the DOM element for an action. Prefers the stored element reference
- * (survives HMR position shifts). When several nodes share one JSX edit id
- * (e.g. letter spans from `.map()`), disambiguates with selectionMode text /
- * beforeContent — same approach as annotation `resolveByEditId`. Never falls
- * back to the first querySelector match when duplicates exist.
+ * (survives HMR position shifts), falls back to querying by the current
+ * data-edit-id attribute.
  * @param {object} action
  * @returns {HTMLElement|null}
  */
 function resolveElement(action) {
 	if (action.element?.isConnected) return action.element;
-
-	const matches = Array.from(document.querySelectorAll(
-		`[data-edit-id="${action.editId}"], [data-edit-assisted-id="${action.editId}"]`,
-	));
-	if (matches.length <= 1) return matches[0] ?? null;
-
-	const text = action.selectionMode?.textContent?.trim()
-		|| plainTextFromStoredHtml(action.instruction?.beforeContent);
-	if (!text) return null;
-
-	return matches.find((match) => match.textContent?.trim() === text) ?? null;
+	return document.querySelector(`[data-edit-id="${action.editId}"]`);
 }
 
 /**
@@ -97,12 +67,12 @@ function applyValueToElement(action, value) {
 	if (!element) return;
 
 	if (action.attribute) {
-		const domAttribute = action.attribute === 'to' ? 'href' : action.attribute;
-		if (value === null) {
-			element.removeAttribute(domAttribute);
-		} else {
-			element.setAttribute(domAttribute, value);
-		}
+		element.setAttribute(action.attribute === 'to' ? 'href' : action.attribute, value || "");
+		return;
+	}
+
+	if (action.replaceSvg) {
+		restoreImageEditValue(element, value);
 		return;
 	}
 
@@ -130,31 +100,38 @@ function applyStyleToElement(action, styleProperties) {
 }
 
 /**
- * Records an edit, coalescing same-session changes to the same element into one
- * undo/redo step. Attribute edits (e.g. href) are keyed separately via {@link getActionKey}.
+ * Records an edit, coalescing within a single edit session: while an element's
+ * entry is the most recent committed action AND shares the same sessionId,
+ * further changes to that element (text, color, alignment, …) amend the same
+ * entry in place — keeping its original oldValue/oldStyle — so the whole burst
+ * undoes/redoes as ONE step. A new entry is pushed when a different element was
+ * edited in between, after undo, or when a new edit session starts on the same
+ * element. Attribute edits (e.g. href) are keyed separately via {@link getActionKey}.
  *
  * @param {string} editId
- * @param {{ beforeContent: string|null, afterContent: string|null }} instruction - Internal undo/redo snapshot.
+ * @param {string} oldValue
+ * @param {string} newValue
  * @param {object} [options]
  * @param {object|null} [options.style] - Net element-level style props applied.
  * @param {object|null} [options.oldStyle] - Previous inline values of those props ('' = unset).
  * @param {string|null} [options.attribute]
  * @param {HTMLElement|null} [options.element]
  * @param {number|null} [options.sessionId] - Inline edit session; coalesces only when equal.
- * @param {boolean} [options.isAssisted] - True when the source-writer can't safely apply this edit and the AI must.
- * @param {object|null} [options.selectionMode] - Rich DOM context captured before mutation (see `captureElementMetadata`).
+ * @param {boolean} [options.replaceSvg]
  */
-export function recordEdit(editId, instruction, { style = null, oldStyle = null, attribute = null, element = null, sessionId = null, isAssisted = false, selectionMode = null } = {}) {
-	const composite = getActionKey({ editId, attribute, isAssisted, selectionMode });
+export function recordEdit(editId, oldValue, newValue, { style = null, oldStyle = null, attribute = null, element = null, sessionId = null, replaceSvg = false } = {}) {
+	const composite = getActionKey({ editId, attribute });
 	const lastForEdit = [...actionLog].slice(0, actionPointer + 1).findLast(action => getActionKey(action) === composite);
-	if (lastForEdit && lastForEdit.instruction.afterContent === instruction.afterContent && !style) return;
+	if (lastForEdit && lastForEdit.newValue === newValue && !style) return;
 
 	if (lastForEdit
 		&& actionLog.lastIndexOf(lastForEdit) === actionPointer
 		&& lastForEdit.sessionId === sessionId) {
-		lastForEdit.instruction = { ...lastForEdit.instruction, afterContent: instruction.afterContent };
+		lastForEdit.newValue = newValue;
 		if (style) {
 			lastForEdit.style = { ...lastForEdit.style, ...style };
+			// Keep the earliest captured old values so a single undo restores
+			// the element to its true pre-edit state.
 			lastForEdit.oldStyle = { ...oldStyle, ...lastForEdit.oldStyle };
 		}
 		if (element) lastForEdit.element = element;
@@ -162,7 +139,7 @@ export function recordEdit(editId, instruction, { style = null, oldStyle = null,
 	}
 
 	actionLog.length = actionPointer + 1;
-	actionLog.push({ editId, instruction, style, oldStyle, attribute, element, sessionId, isAssisted, selectionMode });
+	actionLog.push({ editId, oldValue, newValue, style, oldStyle, attribute, element, sessionId, replaceSvg });
 
 	if (actionLog.length > MAX_HISTORY) {
 		actionLog.shift();
@@ -172,33 +149,14 @@ export function recordEdit(editId, instruction, { style = null, oldStyle = null,
 }
 
 /**
- * Re-applies every committed edit's content/attribute/style to its element,
- * for entries whose stored element reference went stale (a route change or
- * React re-render replaced it with a freshly-mounted, un-edited node).
- */
-export function reapplyCommittedEdits() {
-	for (let index = 0; index <= actionPointer; index++) {
-		const action = actionLog[index];
-		if (action.element?.isConnected) continue;
-
-		const element = resolveElement(action);
-		if (!element) continue;
-
-		action.element = element;
-		applyValueToElement(action, action.instruction.afterContent);
-		if (action.style) applyStyleToElement(action, action.style);
-	}
-}
-
-/**
  * Reverts the most recent committed edit (content and element-level styles)
  * and moves the pointer back.
- * @returns {{ editId: string, instruction: { beforeContent: string, afterContent: string } }|null}
+ * @returns {{ editId: string, oldValue: string, newValue: string }|null}
  */
 export function undo() {
 	if (actionPointer < 0) return null;
 	const action = actionLog[actionPointer];
-	applyValueToElement(action, action.instruction.beforeContent);
+	applyValueToElement(action, action.oldValue);
 	if (action.style) {
 		const revert = {};
 		for (const key of Object.keys(action.style)) {
@@ -213,21 +171,21 @@ export function undo() {
 /**
  * Re-applies the next undone edit (content and element-level styles) and
  * advances the pointer.
- * @returns {{ editId: string, instruction: { beforeContent: string, afterContent: string } }|null}
+ * @returns {{ editId: string, oldValue: string, newValue: string }|null}
  */
 export function redo() {
 	if (actionPointer >= actionLog.length - 1) return null;
 	actionPointer++;
 	const action = actionLog[actionPointer];
-	applyValueToElement(action, action.instruction.afterContent);
+	applyValueToElement(action, action.newValue);
 	applyStyleToElement(action, action.style);
 	return action;
 }
 
 /**
  * Aggregates the committed log into one draft per target: the first entry for a key
- * captures the original instruction/style, later entries update `afterContent`/style.
- * @returns {Map<string, { editId: string, attribute: string|null, instruction: { beforeContent: string, afterContent: string }, originalStyle: Record<string, string>, currentStyle: Record<string, string>, isAssisted: boolean, selectionMode: object|null }>}
+ * captures the original value/style, later entries advance the current value/style.
+ * @returns {Map<string, { attribute: string|null, originalValue: string, currentValue: string, originalStyle: Record<string, string>, currentStyle: Record<string, string> }>}
  */
 function collectEditDrafts() {
 	const draftsByKey = new Map();
@@ -237,21 +195,17 @@ function collectEditDrafts() {
 		let draft = draftsByKey.get(key);
 		if (!draft) {
 			draft = {
-				editId: action.editId,
 				attribute: action.attribute ?? null,
-				instruction: {
-					beforeContent: action.instruction.beforeContent,
-					afterContent: action.instruction.afterContent,
-				},
+				originalValue: action.oldValue,
+				currentValue: action.newValue,
 				originalStyle: {},
 				currentStyle: {},
-				isAssisted: action.isAssisted ?? false,
-				selectionMode: action.selectionMode ?? null,
 			};
 			draftsByKey.set(key, draft);
 		}
-		draft.instruction.afterContent = action.instruction.afterContent;
+		draft.currentValue = action.newValue;
 		for (const [property, value] of Object.entries(action.style ?? {})) {
+			// Keep the earliest original so a later revert is detectable.
 			if (!(property in draft.originalStyle)) {
 				draft.originalStyle[property] = action.oldStyle?.[property] ?? '';
 			}
@@ -262,178 +216,49 @@ function collectEditDrafts() {
 }
 
 /**
- * Collapses the committed log into one net edit per target, shaped like the wire
- * `VisualEditItem`, keyed separately for source persistence and history aggregation.
- * Content, attribute, and individual style-property changes are emitted atomically
- * so downstream consumers do not have to infer what a before/after pair represents.
- * @returns {Record<string, { editId: string, instruction: { changes: Array<{ kind: string, target: string|null, before: string|null, after: string|null }> }, isAssisted: boolean, selectionMode: object|null }>}
+ * Collapses the committed log into one net edit per target. Values or style props
+ * edited back to their original are dropped, so an element reverted to its starting
+ * state yields no edit.
+ * @returns {Record<string, { originalValue: string, currentValue: string, style?: object, attribute?: string }>}
  */
 export function getCurrentEdits() {
 	const edits = {};
 	for (const [key, draft] of collectEditDrafts()) {
-		const changes = [];
-		const beforeContent = draft.attribute
-			? draft.instruction.beforeContent ?? null
-			: sanitizeText(draft.instruction.beforeContent);
-		const afterContent = draft.attribute
-			? draft.instruction.afterContent ?? null
-			: sanitizeText(draft.instruction.afterContent);
+		const isTextEdit = !draft.attribute;
+		const originalValue = isTextEdit ? sanitizeText(draft.originalValue) : draft.originalValue;
+		const currentValue = isTextEdit ? sanitizeText(draft.currentValue) : draft.currentValue;
 
-		if (beforeContent !== afterContent) {
-			changes.push({
-				kind: draft.attribute ? 'attribute' : 'content',
-				target: draft.attribute,
-				before: beforeContent,
-				after: afterContent,
-			});
-		}
-
+		const style = {};
 		for (const property of Object.keys(draft.currentStyle)) {
 			if ((draft.currentStyle[property] ?? '') !== (draft.originalStyle[property] ?? '')) {
-				changes.push({
-					kind: 'style',
-					target: property,
-					before: draft.originalStyle[property] || null,
-					after: draft.currentStyle[property] || null,
-				});
+				style[property] = draft.currentStyle[property] ?? '';
 			}
 		}
 
-		if (!changes.length) continue;
+		const hasStyleChange = Object.keys(style).length > 0;
+		if (currentValue === originalValue && !hasStyleChange) continue;
 
-		const edit = {
-			editId: draft.editId,
-			instruction: { changes },
-			isAssisted: !!draft.isAssisted,
-			selectionMode: draft.selectionMode,
-		};
+		const edit = { originalValue, currentValue };
+		if (draft.attribute) edit.attribute = draft.attribute;
+		if (hasStyleChange) edit.style = style;
 		edits[key] = edit;
 	}
 	return edits;
 }
 
 /**
- * Categorizes the current, uncommitted edit set — used to report which kinds of
- * changes a save actually carries, as opposed to which edit surfaces were merely
- * opened during the session (a text/image edit entered and then reverted leaves
- * no trace here).
- * @param {ReturnType<typeof getCurrentEdits>} edits
- * @param {ReturnType<typeof getComments>} annotations
- * @returns {string[]} distinct categories: "text" | "image" | "annotation"
- */
-function getEditTypes(edits, annotations) {
-	const editTypes = new Set();
-	for (const edit of Object.values(edits)) {
-		const isImageEdit = edit.instruction.changes.some(change => change.kind === 'attribute' && change.target === 'src');
-		editTypes.add(isImageEdit ? 'image' : 'text');
-	}
-	if (annotations.length) editTypes.add('annotation');
-	return [...editTypes];
-}
-
-/**
- * Undo/redo availability plus the count of distinct elements that differ from their original,
- * including elements that only carry an annotation (no history edit).
- * @returns {{ canUndo: boolean, canRedo: boolean, editedElementsCount: number, editTypes: string[] }}
+ * Undo/redo availability plus the count of distinct elements that still differ
+ * from their original. Derived from getCurrentEdits so it can't drift from what
+ * gets persisted.
+ * @returns {{ canUndo: boolean, canRedo: boolean, editedElementsCount: number }}
  */
 export function getEditState() {
-	const edits = getCurrentEdits();
-	const annotations = getComments();
-	
 	const changedElementIds = new Set(
-		Object.values(edits).map(edit => getActionKey({ ...edit, attribute: null })),
+		Object.keys(getCurrentEdits()).map(key => key.split('@')[0]),
 	);
-
-	annotations.forEach((annotation, annotationIndex) => {
-		if (!annotation.elements.length) {
-			changedElementIds.add(`annotation-${annotationIndex}`);
-			return;
-		}
-
-		annotation.elements.forEach((element, elementIndex) => {
-			changedElementIds.add(getEditId(element) || `annotation-${annotationIndex}-${elementIndex}`);
-		});
-	});
-
 	return {
 		canUndo: actionPointer >= 0,
 		canRedo: actionPointer < actionLog.length - 1,
 		editedElementsCount: changedElementIds.size,
-		editTypes: getEditTypes(edits, annotations),
 	};
-}
-
-/**
- * Serializes the full undo/redo stack for persistence across reloads.
- * Strips non-serializable DOM element refs.
- * @returns {{ actionLog: object[], actionPointer: number, nextEditSessionId: number }}
- */
-export function exportDraftSnapshot() {
-	return {
-		actionLog: actionLog.map(({ element: _element, ...action }) => ({
-			...action,
-			instruction: { ...action.instruction },
-			style: action.style ? { ...action.style } : null,
-			oldStyle: action.oldStyle ? { ...action.oldStyle } : null,
-			selectionMode: action.selectionMode ? structuredClone(action.selectionMode) : null,
-		})),
-		actionPointer,
-		nextEditSessionId,
-	};
-}
-
-/**
- * Rebuilds the undo/redo stack from a persisted snapshot and re-applies committed
- * edits to the current DOM. Skips actions whose elements cannot be resolved.
- * @param {{ actionLog?: object[], actionPointer?: number, nextEditSessionId?: number }|null|undefined} snapshot
- * @returns {{ restoredCount: number, skippedCount: number }}
- */
-export function importDraftSnapshot(snapshot) {
-	clearHistory();
-
-	if (!snapshot || !Array.isArray(snapshot.actionLog)) {
-		return { restoredCount: 0, skippedCount: 0 };
-	}
-
-	let restoredCount = 0;
-	let skippedCount = 0;
-
-	for (const action of snapshot.actionLog) {
-		if (!action?.editId || !action?.instruction) {
-			skippedCount++;
-			continue;
-		}
-		actionLog.push({
-			editId: action.editId,
-			instruction: {
-				beforeContent: action.instruction.beforeContent ?? null,
-				afterContent: action.instruction.afterContent ?? null,
-			},
-			style: action.style ?? null,
-			oldStyle: action.oldStyle ?? null,
-			attribute: action.attribute ?? null,
-			element: null,
-			sessionId: action.sessionId ?? null,
-			isAssisted: !!action.isAssisted,
-			selectionMode: action.selectionMode ?? null,
-		});
-		restoredCount++;
-	}
-
-	const maxPointer = actionLog.length - 1;
-	const requestedPointer = typeof snapshot.actionPointer === 'number' ? snapshot.actionPointer : maxPointer;
-	actionPointer = Math.min(Math.max(requestedPointer, -1), maxPointer);
-	nextEditSessionId = typeof snapshot.nextEditSessionId === 'number' && snapshot.nextEditSessionId > 0
-		? snapshot.nextEditSessionId
-		: 1;
-
-	reapplyCommittedEdits();
-
-	for (let index = 0; index <= actionPointer; index++) {
-		if (!actionLog[index].element) {
-			skippedCount++;
-		}
-	}
-
-	return { restoredCount, skippedCount };
 }

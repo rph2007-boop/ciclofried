@@ -2,7 +2,6 @@ import { getEditing } from "../../state/editing-state.js";
 import { stopFontSizeEdit, updateTextFormatToolbar, scheduleRepositionEditOverlays } from "../text-format/toolbar/toolbar.js";
 import { hideAllPanels } from "../../state/panel-state.js";
 import { resolveInlineStylesAtRange } from "../../utils/inline-style-state.js";
-import { EDITOR_UI_SELECTOR } from "../../constants/selectors.js";
 
 /**
  * @param {HTMLElement} element
@@ -79,7 +78,7 @@ export function getStylesAtCursor() {
 export function onSelectionChange(force = false) {
 	const editing = getEditing();
 	if (!editing?.targetElement?.hasAttribute("contenteditable")) return;
-	if (!force && document.activeElement?.closest(EDITOR_UI_SELECTOR)) return;
+	if (!force && document.activeElement?.closest("#text-format-link-action, #text-format-toolbar, #text-format-size-action, #text-format-font-action, #text-format-color-action")) return;
 	const selection = window.getSelection();
 	if (selection && selection.rangeCount > 0 && !editing.targetElement.contains(selection.getRangeAt(0).commonAncestorContainer)) {
 		return;

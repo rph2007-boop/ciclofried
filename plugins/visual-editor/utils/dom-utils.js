@@ -1,38 +1,81 @@
-import { FIXED_CONTEXT_SELECTOR, ELEMENT_TYPE_MAP } from "../constants/selectors.js";
+import { FIXED_CONTEXT_SELECTOR } from "../constants/selectors.js";
 
-/**
- * Logical type of an element for the hover tooltip: `text`, `button`, `image`,
- * or `block` otherwise. Edit targets (`data-edit-id` / `data-edit-assisted-id`)
- * that are not button/image tags are `text`.
- * @param {HTMLElement} element
- * @returns {string}
- */
-export function getElementType(element) {
+/** True for elements that use the parent image picker (`img`, inline `svg`). */
+export function isImageEditElement(element) {
 	const tag = element?.tagName?.toLowerCase();
-	const hasEditId = element?.hasAttribute?.('data-edit-id') || element?.hasAttribute?.('data-edit-assisted-id');
-
-	for (const [type, tags] of Object.entries(ELEMENT_TYPE_MAP)) {
-		if (tags.some(candidate => candidate.toLowerCase() === tag)) {
-			if (!hasEditId && type === 'text') return 'block';
-			return type;
-		}
-	}
-
-	if (hasEditId) return 'text';
-
-	return 'block';
+	return tag === 'img' || tag === 'svg';
 }
 
+/** Serialize inline SVG for image-picker preview (`<img src>`). */
+function svgElementToDataUrl(element) {
+	const clone = element.cloneNode(true);
+	for (const attribute of ['data-edit-type', 'data-edit-id']) {
+		clone.removeAttribute(attribute);
+	}
+	if (!clone.getAttribute('xmlns')) {
+		clone.setAttribute('xmlns', 'http://www.w3.org/2000/svg');
+	}
+	const svgString = new XMLSerializer().serializeToString(clone);
+	return `data:image/svg+xml;charset=utf-8,${encodeURIComponent(svgString)}`;
+}
+
+/** Current value shown in the image picker. */
+export function getImageEditValue(element) {
+	const tag = element?.tagName?.toLowerCase();
+	if (tag === 'img') {
+		return element.getAttribute('src') || '';
+	}
+	if (tag === 'svg') {
+		return svgElementToDataUrl(element);
+	}
+	return '';
+}
+
+/** Value stored for undo (serialized `<svg>` markup, or `<img>` src). */
+export function getImageEditOldValue(element) {
+	if (element?.tagName?.toLowerCase() === 'svg') {
+		return element.outerHTML;
+	}
+	return getImageEditValue(element);
+}
 
 /**
- * The app's mount point, which roots every structural walk so the editor's own
- * body-level surfaces (panels, markers, outlines) are never traversed.
- * @returns {HTMLElement}
+ * Applies a picked image URL. Replaces `<svg>` with `<img>`; updates `src` on `<img>`.
+ * @param {HTMLElement} element
+ * @param {string} url
+ * @returns {HTMLElement} The element that should be tracked in history.
  */
-export function getAppRoot() {
-	return document.getElementById('root') || document.body;
+export function applyImageEditValue(element, url) {
+	if (element?.tagName?.toLowerCase() === 'svg') {
+		const image = document.createElement('img');
+		image.src = url;
+		if (element.className) image.className = element.className;
+		const style = element.getAttribute('style');
+		if (style) image.setAttribute('style', style);
+		const editId = element.getAttribute('data-edit-id');
+		if (editId) image.setAttribute('data-edit-id', editId);
+		element.replaceWith(image);
+		return image;
+	}
+	element.setAttribute('src', url);
+	return element;
 }
 
+/**
+ * Restores a prior image edit value (undo/redo). `value` is a URL or serialized `<svg>`.
+ * @param {HTMLElement} element
+ * @param {string} value
+ */
+export function restoreImageEditValue(element, value) {
+	if (value.trim().startsWith('<')) {
+		const template = document.createElement('template');
+		template.innerHTML = value.trim();
+		const restored = template.content.firstElementChild;
+		if (restored) element.replaceWith(restored);
+		return;
+	}
+	applyImageEditValue(element, value);
+}
 
 /**
  * True when the element sits inside a fixed/sticky ancestor, meaning overlays
@@ -44,26 +87,3 @@ export function isInFixedContext(element) {
 	return !!element.closest(FIXED_CONTEXT_SELECTOR);
 }
 
-/**
- * Host-page modal dialogs that are currently open and visible. Mounted-but-closed
- * dialogs are skipped so a dismissed modal never keeps blocking the page.
- * @returns {HTMLElement[]}
- */
-export function getOpenModals() {
-	return Array.from(document.querySelectorAll('[role="dialog"]')).filter(
-		(modal) => modal.getAttribute('data-state') !== 'closed' && modal.checkVisibility?.() !== false,
-	);
-}
-
-const HOST_ISOLATED_EVENTS = ['pointerdown', 'pointerup', 'keydown', 'keyup'];
-
-/**
- * Prevents host-page libraries (Radix DismissableLayer, FocusScope, etc.) from
- * seeing pointer and keyboard events that originate inside the editor's floating UI.
- * @param {HTMLElement} element
- */
-export function isolateEditorUiEvents(element) {
-	for (const eventName of HOST_ISOLATED_EVENTS) {
-		element.addEventListener(eventName, (event) => event.stopPropagation());
-	}
-}

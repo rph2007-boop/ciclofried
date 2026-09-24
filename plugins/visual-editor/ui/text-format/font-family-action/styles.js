@@ -1,5 +1,5 @@
 import { FONT_ACTION_ID } from './template.js';
-import { PANEL_BG, BORDER_COLOR, HOVER_BG, ACTIVE_BG, BOX_SHADOW_DROPDOWN, COLOR_WHITE, Z_INDEX_EDITOR_PANEL } from '../../../constants/theme.js';
+import { PANEL_BG, BORDER_COLOR, HOVER_BG, ACTIVE_BG, Z_INDEX_EDITOR_PANEL, BOX_SHADOW_DROPDOWN, COLOR_WHITE } from '../../../constants/theme.js';
 
 /** Injected CSS for the font family dropdown panel. */
 export const FONT_ACTION_STYLES = `
@@ -14,8 +14,8 @@ export const FONT_ACTION_STYLES = `
   border-radius: 12px;
   padding: 4px;
   box-shadow: ${BOX_SHADOW_DROPDOWN};
-  user-select: none;
   z-index: ${Z_INDEX_EDITOR_PANEL};
+  user-select: none;
 }
 
 #${FONT_ACTION_ID}.tfa-visible { 

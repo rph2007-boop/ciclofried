@@ -7,10 +7,7 @@ import {
 	generateSourceWithMap,
 	VITE_PROJECT_ROOT,
 } from '../../utils/ast-utils.js';
-import { decodeHtmlEntities, cssPropToCamel, toJsxAttributeName } from '../utils/html-utils.js';
-
-const WRITABLE_ATTRIBUTE_TARGETS = new Set(['src', 'href', 'to']);
-const JSX_STYLE_PROPERTY_PATTERN = /^[A-Za-z_$][\w$]*$/;
+import { decodeHtmlEntities, cssPropToCamel } from '../utils/html-utils.js';
 
 /**
  * Parses `filePath:line:column` edit IDs produced by the transform plugin.
@@ -52,7 +49,7 @@ function parseStyleString(styleString) {
 
 /**
  * Parses HTML attribute string from saved innerHTML into JSX attribute nodes.
- * Skips `data-edit-*` attributes; maps names via {@link toJsxAttributeName}.
+ * Skips `data-edit-*` attributes; maps `class`/`for` to React names.
  *
  * @param {string} rawAttributes
  * @returns {import('@babel/types').JSXAttribute[]}
@@ -63,10 +60,11 @@ function parseHtmlAttributesToJsx(rawAttributes) {
 	const ATTRIBUTE_REGEX = /([\w-]+)\s*=\s*"([^"]*)"/g;
 	let match;
 	while ((match = ATTRIBUTE_REGEX.exec(rawAttributes)) !== null) {
-		const [, rawName, value] = match;
+		let [, name, value] = match;
 		// data-edit-* are injected by the visual-editor transform; never write them to source
-		if (rawName.startsWith('data-edit-')) continue;
-		const name = toJsxAttributeName(rawName);
+		if (name.startsWith('data-edit-')) continue;
+		if (name === 'class') name = 'className';
+		if (name === 'for') name = 'htmlFor';
 		if (name === 'style') {
 			attributes.push(t.jsxAttribute(t.jsxIdentifier(name), parseStyleString(value)));
 		} else {
@@ -77,36 +75,50 @@ function parseHtmlAttributesToJsx(rawAttributes) {
 }
 
 /**
- * Rebuilds JSX children from saved innerHTML, reconstructing every tag structurally.
- * Rendered `<svg>` blocks are matched back, in order, to `iconQueue` (original icon nodes).
+ * Rebuilds JSX children from saved innerHTML, preserving known inline tags and dropping SVG-like markup.
  *
  * @param {string} html
- * @param {import('@babel/types').JSXElement[]} iconQueue - consumed as rendered `<svg>` blocks are matched.
  * @returns {import('@babel/types').JSXChild[]}
  */
-function buildChildrenFromText(html, iconQueue) {
+function buildChildrenFromText(html) {
 	if (!html || html.trim() === '') return [];
 
-	// Decode &lt;/&gt; back to literal tags (not &quot;, which TAG_REGEX relies on as a delimiter).
+	// Decode only &lt;/&gt; so entity-encoded markup is recognised as tags and
+	// stripped by the skipDepth logic below. Do NOT decode &quot; here: attribute
+	// values are delimited by " in TAG_REGEX.
 	html = html.replace(/&lt;/g, '<').replace(/&gt;/g, '>');
 
+	const KNOWN_INLINE = /^(?:strong|em|b|i|u|span|br|a)$/i;
 	const TAG_REGEX = /<(\/?)(\w+)((?:\s+[\w-]+(?:\s*=\s*"[^"]*")?)*)\s*(\/?)>/g;
 
 	const result = [];
 	const stack = [{ children: result }];
 	let lastIndex = 0;
-	/** Depth inside a rendered `<svg>` block being skipped because it was matched to a preserved icon. */
-	let skippedSvgDepth = 0;
+	/** Nesting depth inside non-inline tags (e.g. svg); content within is dropped. */
+	let skipDepth = 0;
 	let match;
 
 	while ((match = TAG_REGEX.exec(html)) !== null) {
 		const [full, closing, tagName, rawAttributes, selfClose] = match;
-		const lower = tagName.toLowerCase();
+		const isInline = KNOWN_INLINE.test(tagName);
 
-		if (skippedSvgDepth > 0) {
-			if (lower === 'svg' && selfClose !== '/') {
-				skippedSvgDepth += closing === '/' ? -1 : 1;
+		if (!isInline) {
+			if (skipDepth === 0 && match.index > lastIndex) {
+				const text = html.slice(lastIndex, match.index);
+				if (text) stack[stack.length - 1].children.push(t.jsxText(text));
 			}
+			if (selfClose !== '/') {
+				if (closing === '/') {
+					if (skipDepth > 0) skipDepth--;
+				} else {
+					skipDepth++;
+				}
+			}
+			lastIndex = match.index + full.length;
+			continue;
+		}
+
+		if (skipDepth > 0) {
 			lastIndex = match.index + full.length;
 			continue;
 		}
@@ -117,8 +129,14 @@ function buildChildrenFromText(html, iconQueue) {
 		}
 		lastIndex = match.index + full.length;
 
-		if (closing === '/') {
-			if (stack.length > 1 && stack[stack.length - 1].tag === lower) {
+		const lower = tagName.toLowerCase();
+
+		if (lower === 'br' || selfClose === '/') {
+			stack[stack.length - 1].children.push(
+				t.jsxElement(t.jsxOpeningElement(t.jsxIdentifier(lower), [], true), null, [], true)
+			);
+		} else if (closing === '/') {
+			if (stack.length > 1) {
 				const frame = stack.pop();
 				const attributes = parseHtmlAttributesToJsx(frame.rawAttrs);
 				stack[stack.length - 1].children.push(
@@ -129,34 +147,16 @@ function buildChildrenFromText(html, iconQueue) {
 					)
 				);
 			}
-			continue;
+		} else {
+			stack.push({ tag: lower, children: [], rawAttrs: rawAttributes || '' });
 		}
-
-		if (lower === 'svg' && selfClose !== '/' && iconQueue.length > 0) {
-			stack[stack.length - 1].children.push(iconQueue.shift());
-			skippedSvgDepth = 1;
-			continue;
-		}
-
-		// Void elements (img, br, ...) never get a closing tag in serialized HTML; others always do.
-		const hasClosingTag = new RegExp(`</${lower}\\s*>`, 'i').test(html.slice(lastIndex));
-		if (selfClose === '/' || !hasClosingTag) {
-			const attributes = parseHtmlAttributesToJsx(rawAttributes);
-			stack[stack.length - 1].children.push(
-				t.jsxElement(t.jsxOpeningElement(t.jsxIdentifier(lower), attributes, true), null, [], true)
-			);
-			continue;
-		}
-
-		stack.push({ tag: lower, children: [], rawAttrs: rawAttributes || '' });
 	}
 
-	if (lastIndex < html.length) {
+	if (skipDepth === 0 && lastIndex < html.length) {
 		const text = html.slice(lastIndex);
 		if (text) stack[stack.length - 1].children.push(t.jsxText(text));
 	}
 
-	// Auto-close any unclosed tags (defensive: malformed/truncated captured HTML).
 	while (stack.length > 1) {
 		const frame = stack.pop();
 		const attributes = parseHtmlAttributesToJsx(frame.rawAttrs);
@@ -179,7 +179,7 @@ function buildChildrenFromText(html, iconQueue) {
  *
  * @param {import('@babel/types').JSXOpeningElement} openingElement
  * @param {Record<string, string>} styleObject
- * @returns {boolean} Whether the style shape was safe to update.
+ * @returns {void}
  */
 function setJsxStyleProperty(openingElement, styleObject) {
 	const existing = openingElement.attributes.find(attribute =>
@@ -199,53 +199,15 @@ function setJsxStyleProperty(openingElement, styleObject) {
 				properties.push(t.objectProperty(t.identifier(key), t.stringLiteral(value)));
 			}
 		}
-		return true;
 	} else if (!existing) {
 		const properties = Object.entries(styleObject)
 			.filter(([, value]) => !!value)
 			.map(([key, value]) => t.objectProperty(t.identifier(key), t.stringLiteral(value)));
-		if (properties.length === 0) return true;
+		if (properties.length === 0) return;
 		openingElement.attributes.push(
 			t.jsxAttribute(t.jsxIdentifier('style'), t.jsxExpressionContainer(t.objectExpression(properties)))
 		);
-		return true;
 	}
-	return false;
-}
-
-/**
- * Sets or removes a static JSX attribute.
- *
- * @param {import('@babel/types').JSXOpeningElement} openingElement
- * @param {string} attributeName
- * @param {string|null} value - `null` removes the attribute.
- * @returns {{ modified: true }|{ modified: false, error: string }}
- */
-function setJsxAttribute(openingElement, attributeName, value) {
-	const attributeIndex = openingElement.attributes.findIndex(attribute =>
-		t.isJSXAttribute(attribute) && attribute.name?.name === attributeName
-	);
-	const existingAttribute = openingElement.attributes[attributeIndex];
-
-	if (value === null) {
-		if (attributeIndex !== -1) openingElement.attributes.splice(attributeIndex, 1);
-		return { modified: true };
-	}
-
-	const newLiteral = t.stringLiteral(value);
-	if (!existingAttribute) {
-		openingElement.attributes.push(t.jsxAttribute(t.jsxIdentifier(attributeName), newLiteral));
-		return { modified: true };
-	}
-	if (t.isStringLiteral(existingAttribute.value)) {
-		existingAttribute.value = newLiteral;
-		return { modified: true };
-	}
-	if (t.isJSXExpressionContainer(existingAttribute.value) && t.isStringLiteral(existingAttribute.value.expression)) {
-		existingAttribute.value = newLiteral;
-		return { modified: true };
-	}
-	return { modified: false, error: `Cannot write '${attributeName}' — source value is not a static string literal` };
 }
 
 /**
@@ -285,7 +247,7 @@ export function groupEditsByFile(draft) {
 }
 
 /**
- * Find the JSX opening element and apply its atomic content, attribute, and style changes.
+ * Find the JSX opening element and apply the edit (image src, link attr, or text content).
  * @param {object} babelAst
  * @param {object} edit
  * @param {{ filePath: string, line: number, column: number }} parsedId
@@ -297,100 +259,58 @@ export function applyElementEdit(babelAst, edit, parsedId) {
 
 	const targetOpeningElement = targetNodePath.node;
 	const parentElementNode = targetNodePath.parentPath?.node;
-	const changes = edit.instruction?.changes;
-	if (!Array.isArray(changes) || changes.length === 0) {
-		return { modified: false, error: 'Edit has no changes' };
-	}
+	const isImageElement = targetOpeningElement.name && targetOpeningElement.name.name === 'img';
 
-	const contentChanges = changes.filter(change => change.kind === 'content');
-	const attributeChanges = changes.filter(change => change.kind === 'attribute');
-	const styleChanges = changes.filter(change => change.kind === 'style');
-	if (contentChanges.length + attributeChanges.length + styleChanges.length !== changes.length) {
-		return { modified: false, error: 'Unsupported visual edit change kind' };
-	}
-	if (contentChanges.length > 1) {
-		return { modified: false, error: 'Edit contains multiple content changes' };
-	}
-	if (changes.some(change =>
-		(change.before !== null && typeof change.before !== 'string')
-		|| (change.after !== null && typeof change.after !== 'string')
-	)) {
-		return { modified: false, error: 'Visual edit change values must be strings or null' };
-	}
-	if (contentChanges.some(change => change.target !== null)) {
-		return { modified: false, error: 'Content changes must have a null target' };
-	}
-	if (contentChanges.length && (!parentElementNode || !t.isJSXElement(parentElementNode))) {
-		return { modified: false, error: 'Could not apply content change to AST' };
-	}
-	if ([...attributeChanges, ...styleChanges].some(change => typeof change.target !== 'string' || !change.target)) {
-		return { modified: false, error: 'Attribute and style changes require a target' };
-	}
-	if (attributeChanges.some(change => !WRITABLE_ATTRIBUTE_TARGETS.has(change.target))) {
-		return { modified: false, error: 'Unsupported visual edit attribute target' };
-	}
-	if (styleChanges.some(change => !JSX_STYLE_PROPERTY_PATTERN.test(change.target))) {
-		return { modified: false, error: 'Unsupported visual edit style target' };
-	}
-	if (styleChanges.length) {
-		const styleAttribute = targetOpeningElement.attributes.find(attribute =>
-			t.isJSXAttribute(attribute) && attribute.name?.name === 'style'
+	if (isImageElement) {
+		const srcAttribute = targetOpeningElement.attributes.find(attribute =>
+			t.isJSXAttribute(attribute) && attribute.name && attribute.name.name === 'src'
 		);
-		if (
-			styleAttribute
-			&& !(
-				t.isJSXExpressionContainer(styleAttribute.value)
-				&& t.isObjectExpression(styleAttribute.value.expression)
-			)
-		) {
-			return { modified: false, error: 'Cannot write style — source value is not a static object literal' };
+		if (srcAttribute && t.isStringLiteral(srcAttribute.value)) {
+			srcAttribute.value = t.stringLiteral(edit.currentValue);
+			return { modified: true };
 		}
+		return { modified: false, error: 'Could not apply change to AST' };
 	}
 
-	// Validate every attribute before mutating the AST so a later unsupported
-	// dynamic value cannot leave an earlier change partially applied.
-	for (const change of attributeChanges) {
+	if (edit.attribute === 'href' || edit.attribute === 'to') {
+		const attributeName = edit.attribute;
 		const existingAttribute = targetOpeningElement.attributes.find(attribute =>
-			t.isJSXAttribute(attribute) && attribute.name?.name === change.target
+			t.isJSXAttribute(attribute) && attribute.name && attribute.name.name === attributeName
 		);
-		const isWritable = !existingAttribute
-			|| t.isStringLiteral(existingAttribute.value)
-			|| (
-				t.isJSXExpressionContainer(existingAttribute.value)
-				&& t.isStringLiteral(existingAttribute.value.expression)
-			);
-		if (!isWritable) {
-			return {
-				modified: false,
-				error: `Cannot write '${change.target}' — source value is not a static string literal`,
-			};
+		const newLiteral = t.stringLiteral(edit.currentValue ?? '');
+		if (!existingAttribute) {
+			targetOpeningElement.attributes.push(t.jsxAttribute(t.jsxIdentifier(attributeName), newLiteral));
+			return { modified: true };
 		}
+		if (t.isStringLiteral(existingAttribute.value)) {
+			existingAttribute.value = newLiteral;
+			return { modified: true };
+		}
+		if (t.isJSXExpressionContainer(existingAttribute.value) && t.isStringLiteral(existingAttribute.value.expression)) {
+			existingAttribute.value = newLiteral;
+			return { modified: true };
+		}
+		return { modified: false, error: `Cannot write '${attributeName}' — source value is not a static string literal` };
 	}
 
-	for (const change of attributeChanges) {
-		const result = setJsxAttribute(targetOpeningElement, change.target, change.after);
-		if (!result.modified) return result;
-	}
-
-	if (contentChanges.length) {
-		// Icon components can't be rebuilt from rendered HTML, so their original nodes pass through.
+	if (parentElementNode && t.isJSXElement(parentElementNode)) {
+		// Preserve self-closing capital-letter components (icons) from the original
+		// children — they cannot be reconstructed from the saved innerHTML.
 		const preservedIcons = parentElementNode.children.filter(child =>
 			t.isJSXElement(child)
 			&& child.openingElement.selfClosing
 			&& child.openingElement.name?.name
 			&& /^[A-Z]/.test(child.openingElement.name.name)
 		);
-		parentElementNode.children = buildChildrenFromText(contentChanges[0].after ?? '', preservedIcons);
+		const newTextChildren = edit.currentValue && edit.currentValue.trim() !== ''
+			? buildChildrenFromText(edit.currentValue)
+			: [];
+		parentElementNode.children = [...preservedIcons, ...newTextChildren];
+		if (edit.style) setJsxStyleProperty(parentElementNode.openingElement, edit.style);
+		return { modified: true };
 	}
 
-	if (styleChanges.length) {
-		const style = Object.fromEntries(styleChanges.map(change => [change.target, change.after ?? '']));
-		if (!setJsxStyleProperty(targetOpeningElement, style)) {
-			return { modified: false, error: 'Cannot write style — source value is not a static object literal' };
-		}
-	}
-
-	return { modified: true };
+	return { modified: false, error: 'Could not apply change to AST' };
 }
 
 /**
@@ -408,8 +328,7 @@ export function applyElementEdit(babelAst, edit, parsedId) {
  */
 export function renderEditedSource(babelAst, absoluteFilePath, originalContent) {
 	// Strip any data-edit-* attributes before generating source.
-	const traverseFunction = traverseBabel.default || traverseBabel;
-	traverseFunction(babelAst, {
+	traverseBabel.default(babelAst, {
 		JSXOpeningElement(openingElementPath) {
 			openingElementPath.node.attributes = openingElementPath.node.attributes.filter(attribute =>
 				!(t.isJSXAttribute(attribute) && typeof attribute.name?.name === 'string'

@@ -1,5 +1,5 @@
 import { TOOLBAR_ID } from './template.js';
-import { PANEL_BG, BORDER_COLOR, BORDER_COLOR_TRANSLUCENT, HOVER_BG, ACTIVE_BG, BOX_SHADOW_TOOLBAR, COLOR_WHITE, Z_INDEX_EDITOR_PANEL } from '../../../constants/theme.js';
+import { PANEL_BG, BORDER_COLOR, BORDER_COLOR_TRANSLUCENT, HOVER_BG, ACTIVE_BG, Z_INDEX_EDITOR_PANEL, BOX_SHADOW_TOOLBAR, COLOR_WHITE } from '../../../constants/theme.js';
 
 /** Injected CSS for the floating text-format toolbar. */
 export const TOOLBAR_STYLES = `
@@ -12,12 +12,12 @@ export const TOOLBAR_STYLES = `
   border: 1px solid ${BORDER_COLOR};
   border-radius: 12px;
   box-shadow: ${BOX_SHADOW_TOOLBAR};
+  z-index: ${Z_INDEX_EDITOR_PANEL};
   user-select: none;
   color: ${COLOR_WHITE};
   font-family: DM Sans, sans-serif;
   white-space: nowrap;
   cursor: grab;
-  z-index: ${Z_INDEX_EDITOR_PANEL};
   /* Never exceed the viewport — the inner row scrolls horizontally instead. */
   max-width: calc(100vw - 16px);
 }
@@ -40,26 +40,6 @@ export const TOOLBAR_STYLES = `
 }
 .tft-scroll::-webkit-scrollbar { display: none; }
 
-.tft-text-btn {
-  display: flex;
-  align-items: center;
-  justify-content: center;
-  gap: 8px;
-  padding: 6px 12px;
-  background: transparent;
-  border: none;
-  border-radius: 8px;
-  color: ${COLOR_WHITE};
-  font-family: DM Sans, sans-serif;
-  font-size: 14px;
-  font-weight: 600;
-  line-height: 20px;
-  cursor: pointer;
-  flex-shrink: 0;
-}
-.tft-text-btn:hover { background: ${HOVER_BG}; }
-.tft-text-btn svg { flex-shrink: 0; }
-
 .tft-swatch {
   display: flex;
   align-items: center;
@@ -67,7 +47,7 @@ export const TOOLBAR_STYLES = `
   padding: 6px;
   background: transparent;
   border: none;
-  border-radius: 8px;
+  border-radius: 6px;
   cursor: pointer;
   flex-shrink: 0;
 }
@@ -76,15 +56,15 @@ export const TOOLBAR_STYLES = `
 .tft-swatch-preview {
   width: 20px;
   height: 20px;
-  border-radius: 6px;
+  border-radius: 5px;
   background: ${COLOR_WHITE};
-  border: 1px solid ${BORDER_COLOR_TRANSLUCENT};
+  border: 1.5px solid ${BORDER_COLOR_TRANSLUCENT};
   pointer-events: none;
 }
 
 .tft-divider {
   width: 1px;
-  height: 24px;
+  height: 18px;
   background: ${COLOR_WHITE}26;
   flex-shrink: 0;
 }
@@ -92,39 +72,28 @@ export const TOOLBAR_STYLES = `
 .tft-select {
   display: flex;
   align-items: center;
+  justify-content: space-between;
   gap: 4px;
   padding: 6px 8px;
   background: transparent;
   border: none;
-  border-radius: 8px;
+  border-radius: 6px;
   color: ${COLOR_WHITE};
-  font-size: 14px;
-  font-weight: 400;
-  line-height: 20px;
-  min-width: 32px;
-  max-width: 120px;
+  font-size: 13px;
+  font-weight: 500;
+  min-width: 104px;
   cursor: pointer;
   white-space: nowrap;
 }
 .tft-select:hover { background: ${HOVER_BG}; }
-.tft-select--size { width: 64px; }
-
-/* Fills the button so long font names ellipsis-truncate instead of widening it. */
-.tft-label {
-  flex: 1 0 0;
-  min-width: 0;
-  overflow: hidden;
-  text-align: left;
-  text-overflow: ellipsis;
-  white-space: nowrap;
-}
+.tft-select--size { min-width: 48px; }
 
 .tft-font-size {
   color: ${COLOR_WHITE};
-  font-size: 14px;
-  font-weight: 400;
-  line-height: 20px;
+  font-size: 13px;
+  font-weight: 500;
   font-family: DM Sans, sans-serif;
+  min-width: 20px;
   cursor: text;
 }
 .tft-font-size--editing::after {
@@ -156,7 +125,7 @@ export const TOOLBAR_STYLES = `
   padding: 0;
   background: transparent;
   border: none;
-  border-radius: 8px;
+  border-radius: 6px;
   color: #9ca3af;
   font-size: 14px;
   font-weight: 700;
