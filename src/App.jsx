@@ -3,6 +3,7 @@ import { BrowserRouter, Routes, Route, Navigate } from 'react-router-dom';
 import { FriendsProvider } from '@/contexts/FriendsContext';
 import { Toaster } from '@/components/ui/toaster';
 import Header from '@/components/Header';
+import BottomNavigation from '@/components/BottomNavigation';
 import Dashboard from '@/components/Dashboard';
 import AddFriend from '@/components/AddFriend';
 import FriendProfile from '@/components/FriendProfile';
@@ -24,9 +25,9 @@ const AppContent = () => {
   usePhotoSync(); // Hook usage
 
   return (
-    <div className="min-h-screen font-body text-foreground bg-gray-50/30">
+    <div className="min-h-screen font-body text-foreground bg-gray-50/30 flex flex-col">
       <Header />
-      <div className="pb-12">
+      <div className="flex-1 pb-24 md:pb-12">
         <Routes>
           {/* Public Routes */}
           <Route path="/login" element={<LoginPage />} />
@@ -47,6 +48,7 @@ const AppContent = () => {
           </Route>
         </Routes>
       </div>
+      <BottomNavigation />
       <Toaster />
     </div>
   );

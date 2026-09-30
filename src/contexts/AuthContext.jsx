@@ -44,12 +44,29 @@ export const AuthProvider = ({ children }) => {
             setCurrentUser(data.session.user);
             setIsGuest(false);
             setSyncTrigger(prev => prev + 1);
+          } else {
+            localStorage.setItem('guestSession', 'true');
+            setIsGuest(true);
+            setCurrentUser({ 
+              id: 'guest_user', 
+              email: 'visitante@demo.com', 
+              user_metadata: { name: 'Visitante' } 
+            });
           }
           setIsLoading(false);
         }
       } catch (error) {
         console.error("Unexpected error checking auth session:", error);
-        if (mounted) setIsLoading(false);
+        if (mounted) {
+          localStorage.setItem('guestSession', 'true');
+          setIsGuest(true);
+          setCurrentUser({ 
+            id: 'guest_user', 
+            email: 'visitante@demo.com', 
+            user_metadata: { name: 'Visitante' } 
+          });
+          setIsLoading(false);
+        }
       }
     }
 

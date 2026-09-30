@@ -1,0 +1,7 @@
+<?xml version='1.0' encoding='utf-8'?>
+<resources>
+    <string name="app_name">CicloFriend</string>
+    <string name="title_activity_main">CicloFriend</string>
+    <string name="package_name">com.ciclofriend.app</string>
+    <string name="custom_url_scheme">com.ciclofriend.app</string>
+</resources>
